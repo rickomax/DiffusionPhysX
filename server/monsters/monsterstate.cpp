@@ -20,13 +20,9 @@
 #include "extdll.h"
 #include "util.h"
 #include "cbase.h"
-#include "nodes.h"
 #include "monsters.h"
-#include "animation.h"
-#include "game/saverestore.h"
 #include "entities/soundent.h"
 #include "weapons/weapons.h"
-#include "player.h"
 
 //=========================================================
 // SetState
@@ -179,7 +175,7 @@ void CBaseMonster::CheckFire(void)
 				WRITE_BYTE( RANDOM_LONG(10,20) ); // framerate
 			MESSAGE_END();
 
-			TakeDamage( VARS( eoNullEntity ), VARS( eoNullEntity ), 1.0f, DMG_BURN );
+			TakeDamage( VARS( eoNullEntity ), VARS( eoNullEntity ), 1.0f, DMG_BURN | DMG_NEVERGIB );
 		}
 	}
 }

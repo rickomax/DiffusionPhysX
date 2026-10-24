@@ -445,6 +445,7 @@ void R_CheckChanges( void )
 			FREE_TEXTURE( tr.screen_fbo_texture_color );
 			tr.screen_fbo_texture_color = 0;
 		}
+		// don't clear the flag - engine does this for this cvar
 	}
 
 	if( FBitSet( r_lightmap->flags, FCVAR_CHANGED ))
@@ -527,6 +528,13 @@ void R_CheckChanges( void )
 		settings_changed = true;
 	}
 
+	// this picks shader directives, so the ubershaders have to be rebuilt for a change to show without reloading the map
+	if( FBitSet( r_sun_shadow->flags, FCVAR_CHANGED ))
+	{
+		ClearBits( r_sun_shadow->flags, FCVAR_CHANGED );
+		settings_changed = true;
+	}
+
 	if( FBitSet( gl_water_refraction->flags, FCVAR_CHANGED ) )
 	{
 		ClearBits( gl_water_refraction->flags, FCVAR_CHANGED );
@@ -567,6 +575,18 @@ void R_CheckChanges( void )
 	{
 		R_VidInit();
 		ClearBits( gl_renderscale->flags, FCVAR_CHANGED );
+	}
+
+	if( FBitSet( gl_texture_nearest->flags, FCVAR_CHANGED ) )
+	{
+		tr.bDoInitBloom = true;
+		// don't clear the flag - engine does this for this cvar
+	}
+
+	if( FBitSet( cl_crosshair_scale->flags, FCVAR_CHANGED ) )
+	{
+		gHUD.m_CrosshairStatic.VidInitCrosshairs();
+		ClearBits( cl_crosshair_scale->flags, FCVAR_CHANGED );
 	}
 
 	if( tr.fogEnabled != fog_enabled_old )
@@ -816,9 +836,7 @@ static void R_Clear( int bitMask )
 	}
 	else
 	{
-		if( GL_Support( R_PARANOIA_EXT ))
-			gldepthmin = 0.0001f;
-		else gldepthmin = 0.0f;
+		gldepthmin = 0.0f;
 		gldepthmax = 1.0f;
 	}
 
@@ -1802,7 +1820,19 @@ void R_RenderScene( void )
 	}
 	
 	if( RP_NORMALPASS() ) // no shadowpass for 3D sky and subviews
+	{
 		R_RenderShadowmaps();
+
+		static bool sunShadowWasActive = false;
+		R_RenderSunShadow();
+
+		// the ubershaders pick the sun shadow variant from sunShadowActive, which is off while paused (e.g. loading a save), so rebuild them whenever it flips
+		if( tr.sunShadowActive != sunShadowWasActive )
+		{
+			sunShadowWasActive = tr.sunShadowActive;
+			tr.glsl_valid_sequence++;
+		}
+	}
 
 	// recursive draw mirrors, portals, etc
 	R_RenderSubview(); // diffusion - I moved this here. position before shadowmaps cause the flashlight to flicker if there is a monitor or two in view (and no shadows).
@@ -1946,7 +1976,10 @@ void HUD_PrintStats( void )
 		R_Speeds_Printf( "%3i mirrors\n", r_stats.c_mirror_passes );
 		R_Speeds_Printf( "%3i portals\n", r_stats.c_portal_passes );
 		R_Speeds_Printf( "%3i screens\n", r_stats.c_screen_passes );
-		R_Speeds_Printf( "%3i shadows\n", r_stats.c_shadow_passes );
+		if( r_stats.c_sunshadow_passes > 0 )
+			R_Speeds_Printf( "%3i shadows, %i sun shadows\n", r_stats.c_shadow_passes, r_stats.c_sunshadow_passes );
+		else
+			R_Speeds_Printf( "%3i shadows\n", r_stats.c_shadow_passes );
 		R_Speeds_Printf( "%3i 3d sky\n", r_stats.c_sky_passes );
 		R_Speeds_Printf( "%3i vis mergers\n", r_stats.c_vis_mergers );
 		R_Speeds_Printf( "%3i total\n\n", r_stats.num_passes );

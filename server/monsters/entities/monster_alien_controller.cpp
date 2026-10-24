@@ -29,8 +29,6 @@
 
 // CDrone
 #include	"entities/soundent.h"
-#include	"customentity.h"
-#include	"explode.h"
 #include	"entities/func_break.h"
 #include	"player.h"
 
@@ -1371,7 +1369,7 @@ void CControllerHeadBall :: HuntThink( void  )
 		if (pEntity != NULL && pEntity->pev->takedamage)
 		{
 			ClearMultiDamage( );
-			pEntity->TraceAttack( m_hOwner->pev, g_controllerDmgZap, GetAbsVelocity(), &tr, DMG_SHOCK );
+			pEntity->TraceAttack( m_hOwner->pev, g_controllerDmgZap, GetAbsVelocity().Normalize(), &tr, DMG_SHOCK );
 			ApplyMultiDamage( pev, m_hOwner->pev );
 		}
 
@@ -1991,7 +1989,7 @@ void CAlienSuperBall :: HuntThink( void  )
 		{
 			ClearMultiDamage( );
 											  // 15 instead of gSkillData.controllerDmgZap
-			pEntity->TraceAttack( m_hOwner->pev, 15, GetAbsVelocity(), &tr, DMG_SHOCK );
+			pEntity->TraceAttack( m_hOwner->pev, 15, GetAbsVelocity().Normalize(), &tr, DMG_SHOCK );
 			ApplyMultiDamage( pev, m_hOwner->pev );
 		}
 		// fire a lightning

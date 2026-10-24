@@ -24,36 +24,6 @@ GNU General Public License for more details.
 #include "r_world.h"
 #include "triangleapi.h"
 
-void AngleMatrix( const Vector &angles, matrix3x4 &matrix )
-{
-	float sr, sp, sy, cr, cp, cy;
-
-	SinCos( DEG2RAD( angles[YAW] ), &sy, &cy );
-	SinCos( DEG2RAD( angles[PITCH] ), &sp, &cp );
-	SinCos( DEG2RAD( angles[ROLL] ), &sr, &cr );
-
-	// matrix = (YAW * PITCH) * ROLL
-	matrix[0][0] = cp * cy;
-	matrix[1][0] = cp * sy;
-	matrix[2][0] = -sp;
-
-	float crcy = cr * cy;
-	float crsy = cr * sy;
-	float srcy = sr * cy;
-	float srsy = sr * sy;
-	matrix[0][1] = sp * srcy - crsy;
-	matrix[1][1] = sp * srsy + crcy;
-	matrix[2][1] = sr * cp;
-
-	matrix[0][2] = (sp * crcy + srsy);
-	matrix[1][2] = (sp * crsy - srcy);
-	matrix[2][2] = cr * cp;
-
-	matrix[0][3] = 0.0f;
-	matrix[1][3] = 0.0f;
-	matrix[2][3] = 0.0f;
-}
-
 #define TARGET_SIZE32	32
 #define TARGET_SIZE		128
 #define TARGET_SIZE256	256
@@ -290,6 +260,8 @@ static void InitBloom( void )
 	}
 
 	pglBindFramebuffer( GL_FRAMEBUFFER_EXT, 0 );
+
+	tr.bDoInitBloom = false;
 }
 
 void InitPostTextures( void )
@@ -632,14 +604,24 @@ void GaussBlur( void )
 		return;
 
 	// blur when paused (menu is shown)
-	if( RP_NORMALPASS() && !cl_background->value )
+	if( RP_NORMALPASS() )
 	{
-		if( !CVAR_TO_BOOL( ui_videooptions_active ) && (tr.time == tr.oldtime || CVAR_TO_BOOL( ui_is_active )) )
-			pausedblur += 0.5 * g_fFrametime;
+		if( cl_background->value )
+		{
+			if( tr.time == tr.oldtime )
+				pausedblur = 0.1f;
+			else
+				pausedblur -= 0.25f * g_fFrametime;
+		}
 		else
-			pausedblur -= 0.5 * g_fFrametime;
+		{
+			if( !CVAR_TO_BOOL( ui_videooptions_active ) && (tr.time == tr.oldtime || CVAR_TO_BOOL( ui_is_active )) )
+				pausedblur += 0.5f * g_fFrametime;
+			else
+				pausedblur -= 0.5f * g_fFrametime;
+		}
 
-		pausedblur = bound( 0, pausedblur, 0.1 );
+		pausedblur = bound( 0.0f, pausedblur, 0.1f );
 
 		if( pausedblur > 0 )
 		{
@@ -1075,6 +1057,9 @@ void Bloom( void )
 		return;
 
 	if( !tr.screen_fbo_texture_color )
+		InitBloom();
+
+	if( tr.bDoInitBloom ) // forced to restart for whatever reasons
 		InitBloom();
 
 	GL_Bind( GL_TEXTURE0, tr.screen_fbo_texture_color );

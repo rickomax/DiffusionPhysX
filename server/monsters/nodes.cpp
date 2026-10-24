@@ -20,9 +20,7 @@
 #include	"util.h"
 #include	"cbase.h"
 #include  "virtualfs.h"
-#include	"monsters.h"
 #include	"nodes.h"
-#include	"animation.h"
 #include	"doors.h"
 
 #define	HULL_STEP_SIZE 16// how far the test hull moves on each step
@@ -1807,7 +1805,7 @@ void CTestHull :: BuildNodeGraph( void )
 			free ( pTempPool );
 
 		// dump the report onto disk
-		SAVE_FILE( szNrpFilename, file.GetBuffer(), file.GetSize( ));
+		SAVE_FILE( szNrpFilename, file.GetBuffer(), static_cast<int>(file.GetSize()) );
 
 		return;
 	}
@@ -1869,7 +1867,7 @@ void CTestHull :: BuildNodeGraph( void )
 						free ( pTempPool );
 
 					// dump the report onto disk
-					SAVE_FILE( szNrpFilename, file.GetBuffer(), file.GetSize( ));
+					SAVE_FILE( szNrpFilename, file.GetBuffer(), static_cast<int>( file.GetSize() ) );
 					return;
 				}
 				
@@ -1980,7 +1978,7 @@ void CTestHull :: BuildNodeGraph( void )
 			free ( pTempPool );
 
 		// dump the report onto disk
-		SAVE_FILE( szNrpFilename, file.GetBuffer(), file.GetSize( ));
+		SAVE_FILE( szNrpFilename, file.GetBuffer(), static_cast<int>(file.GetSize()) );
 		return;
 	}
 
@@ -2064,7 +2062,7 @@ void CTestHull :: BuildNodeGraph( void )
 		free ( pTempPool );
 
 	// dump the report onto disk
-	SAVE_FILE( szNrpFilename, file.GetBuffer(), file.GetSize( ));
+	SAVE_FILE( szNrpFilename, file.GetBuffer(), static_cast<int>( file.GetSize() ) );
 
 	// We now have some graphing capabilities.
 	//
@@ -2560,7 +2558,7 @@ int CGraph :: FSaveGraph ( char *szMapName )
 #else
 	Q_snprintf( szFilename, sizeof( szFilename ), "maps/graphs/%s.nod", szMapName );
 
-	if( SAVE_FILE( szFilename, file.GetBuffer(), file.GetSize() ) )
+	if( SAVE_FILE( szFilename, file.GetBuffer(), static_cast<int>(file.GetSize()) ) )
 		return true;
 	return false;
 #endif

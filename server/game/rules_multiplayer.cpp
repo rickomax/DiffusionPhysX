@@ -21,7 +21,6 @@
 #include "player.h"
 #include "weapons/weapons.h"
 #include "game/gamerules.h"
-#include "game/skill.h"
 #include "game/game.h"
 #include "items.h"
 #include "hltv.h"
@@ -1054,7 +1053,10 @@ void CHalfLifeMultiplay :: PlayerKilled( CBasePlayer *pVictim, entvars_t *pKille
 
 		// save the killer entity to follow him
 		if( pTheKiller != pVictim && !(pVictim->pev->flags & FL_FAKECLIENT) && !bSkipKillerCam )
+		{
 			pVictim->m_hKiller = pTheKiller;
+			pVictim->bSendKillerIndex = true;
+		}
 	}
 
 	// in multiplayer, handle bonus level if a player killed us (make sure it's not a suicide...)

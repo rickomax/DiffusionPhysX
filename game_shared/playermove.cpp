@@ -823,6 +823,61 @@ CategorizeContinue:
 	pmove->chtexturetype = PM_FindTextureType( pmove->sztexturename );
 }
 
+void PM_StayOnGround( void )
+{
+	pmtrace_t trace;
+	Vector start, end;
+
+	// don't snap if we're not supposed to be on ground or are in water jump
+	if( pmove->onground == -1 || pmove->waterjumptime )
+		return;
+
+	if( pmove->movetype == MOVETYPE_NOCLIP || pmove->spectator )
+		return;
+
+	if( pmove->cmd.buttons & IN_DUCK || pmove->flags & FL_DUCKING )
+		return;
+
+	const float speed = pmove->velocity.Length();
+	if( speed < 100.0f || speed > 500.0f )
+		return;
+
+	start = end = pmove->origin;
+
+	if( pmove->effects & EF_UPSIDEDOWN )
+	{
+		start.z -= 2.0f;
+		end.z += pmove->movevars->stepsize;
+	}
+	else
+	{
+		start.z += 2.0f;
+		end.z -= pmove->movevars->stepsize;
+	}
+
+	// see how far we can go without getting stuck
+	trace = pmove->PM_PlayerTrace( pmove->origin, start, PM_NORMAL, -1 );
+	start = trace.endpos;
+
+	// trace the full step distance from the safe position
+	trace = pmove->PM_PlayerTrace( start, end, PM_NORMAL, -1 );
+
+	if( trace.fraction > 0.0f &&			// moved at least a little
+		trace.fraction < 1.0f &&			// hit something
+		!trace.startsolid && !trace.allsolid &&
+		((pmove->effects & EF_UPSIDEDOWN) ?
+			(trace.plane.normal[2] <= -0.7f) :
+			(trace.plane.normal[2] >= 0.7f)) )
+	{
+		// only snap if the distance is meaningful
+		float flDelta = fabs( pmove->origin.z - trace.endpos.z );
+		if( flDelta > 0.03125f )			// 1/32 unit, similar to Source's COORD_RESOLUTION check
+		{
+			pmove->origin = trace.endpos;
+		}
+	}
+}
+
 void PM_UpdateStepSound( int LadderSound = 0 )
 {
 	if( pmove->movetype == MOVETYPE_NOCLIP )
@@ -890,7 +945,7 @@ void PM_UpdateStepSound( int LadderSound = 0 )
 	{
 		velwalk = 120;
 		velrun = 210;
-		flduck = 20;  // diffusion - more time between regular walking sounds
+		flduck = 100;  // diffusion - more time between regular walking sounds (to account player's model animation)
 	}
 	
 	if ( (pmove->cmd.buttons & IN_RUN) && (pmove->cmd.buttons & IN_FORWARD) && !(pmove->flags & FL_DUCKING))  // DiffusionSprint
@@ -1091,11 +1146,10 @@ int PM_ClipVelocity( Vector in, Vector normal, Vector &out, float overbounce )
 {
 	float backoff;
 	float angle;
-	int i, blocked;
 	
 	angle = normal[ 2 ];
 
-	blocked = 0x00; // Assume unblocked.
+	int blocked = 0x00; // Assume unblocked.
 	if( angle > 0 ) // If the plane that is blocking us has a positive z component, then assume it's a floor.
 		blocked |= 0x01;
 	if( !angle ) // If the plane has no Z, it is vertical (wall/step)
@@ -1497,6 +1551,7 @@ void PM_WalkMove( void )
 	if( trace.fraction == 1.0f )
 	{
 		pmove->origin = trace.endpos;
+		PM_StayOnGround();
 		return;
 	}
 
@@ -1586,6 +1641,8 @@ usedown:
 		// copy z value from slide move
 		pmove->velocity.z = downvel.z;
 	}
+
+	PM_StayOnGround();
 }
 
 /*
@@ -3294,6 +3351,31 @@ void PM_PlayerMove ( qboolean server )
 	if ( pmove->spectator || pmove->iuser1 > 0 )
 	{
 		PM_SpectatorMove();
+		PM_CategorizePosition();
+		return;
+	}
+
+	// PVS for death camera
+	if( pmove->dead && pmove->iuser2 > 0 )
+	{
+		// Find the client this player's targeting
+		int target;
+		for( target = 0; target < pmove->numphysent; target++ )
+		{
+			if( pmove->physents[target].info == pmove->iuser2 )
+				break;
+		}
+
+		if( target == pmove->numphysent )
+			return;
+
+		// use targets position as own origin for PVS
+		pmove->angles = pmove->physents[target].angles;
+		pmove->origin = pmove->physents[target].origin;
+
+		// no velocity
+		pmove->velocity = g_vecZero;
+
 		PM_CategorizePosition();
 		return;
 	}

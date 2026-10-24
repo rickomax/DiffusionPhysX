@@ -190,6 +190,7 @@
 #define CF_NOGRASSLIGHTING	BIT(12) // do not light grass (diffusion - minor optimization for insignificant lights)
 #define CF_ONLYBRUSHSHADOWS BIT(13) // ignore studio models during shadow pass (minor optimization for particular cases)
 #define CF_ONLYFORCEDSHADOWS BIT(14) // only entities with kRenderFxForceShadow will cast shadows
+#define CF_SUNLIGHT			BIT( 15 ) // this light is the dynamic sun
 
 // entity flags
 #define EFLAG_SLERP			BIT(0)	// do studio interpolation of this entity
@@ -672,6 +673,7 @@
 #define TE_SUNLIGHT_SCALE 144
 #define TE_NPCCLIP 145 // npc's reloading clip
 #define TE_RELOAD_CIRCLE 146
+#define TE_PLAYERKILLERIDX 147 // index of the player who killed us
 
 #define MSG_BROADCAST		0	// unreliable to all
 #define MSG_ONE			1	// reliable to one (msg_entity)
@@ -844,6 +846,7 @@ enum
 	kRenderFxParticle,			// diffusion - quakeparticle
 	kRenderFxOnlyShadows,		// diffusion - draw shadows only
 	kRenderFxParticleLine,		// diffusion - env_particle_line
+	kRenderFxOnlySunShadows,	// diffusion - no dynamic shadows except the sun
 };
 
 typedef unsigned int	string_t;

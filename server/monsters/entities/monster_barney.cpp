@@ -23,10 +23,8 @@
 #include "talkmonster.h"
 #include "game/schedule.h"
 #include "game/defaultai.h"
-#include "game/scripted.h"
 #include "weapons/weapons.h"
 #include "entities/soundent.h"
-#include "plane.h"
 #include "animation.h"
 
 //=========================================================
@@ -71,6 +69,7 @@ public:
 	void AlertSound( void );
 	int  Classify ( void );
 	void HandleAnimEvent( MonsterEvent_t *pEvent );
+	void OnRagdoll( void );
 
 	void RunTask( Task_t *pTask );
 	void StartTask( Task_t *pTask );
@@ -92,6 +91,8 @@ public:
 
 	void TraceAttack( entvars_t *pevAttacker, float flDamage, Vector vecDir, TraceResult *ptr, int bitsDamageType);
 	void Killed( entvars_t *pevAttacker, int iGib );
+
+	virtual int GetActiveWeaponId( void );
 
 	DECLARE_DATADESC();
 
@@ -561,13 +562,32 @@ void CBarney :: BarneyFirePistol ( void )
 	if ( m_cAmmoLoaded <= 0 )
 		SetConditions(bits_COND_NO_AMMO_LOADED);
 }
-		
+
+//=========================================================
+// GetActiveWeaponId - .357 or 9mm sidearm, selected by pev->frags
+//=========================================================
+int CBarney :: GetActiveWeaponId( void )
+{
+	return pev->frags ? WEAPON_DEAGLE : WEAPON_BERETTA;
+}
+
 //=========================================================
 // HandleAnimEvent - catches the monster-specific messages
 // that occur when tagged animation frames are played.
 //
 // Returns number of events handled, 0 if none.
 //=========================================================
+void CBarney :: OnRagdoll( void )
+{
+	CBaseEntity::OnRagdoll();
+
+	// no gun-less body exists for barney, put a drawn gun back into the holster
+	if( m_fGunDrawn )
+	{
+		pev->body = m_iBaseBody + BARNEY_BODY_GUNHOLSTERED;
+	}
+}
+
 void CBarney :: HandleAnimEvent( MonsterEvent_t *pEvent )
 {
 	Vector pos = g_vecZero;
@@ -1714,10 +1734,13 @@ Schedule_t *CAlice :: GetSchedule ( void )
 
 		case MONSTERSTATE_ALERT:	
 		case MONSTERSTATE_IDLE:
-			if ( HasConditions(bits_COND_LIGHT_DAMAGE | bits_COND_HEAVY_DAMAGE))
+			if( m_bStanding ) // TEMPORARY UNTIL I HAVE THE ANIMATIONS - don't do flinches in the sitting-shooting pose
 			{
-			// flinch if hurt
-			return GetScheduleOfType( SCHED_SMALL_FLINCH );
+				if( HasConditions( bits_COND_LIGHT_DAMAGE | bits_COND_HEAVY_DAMAGE ) )
+				{
+					// flinch if hurt
+					return GetScheduleOfType( SCHED_SMALL_FLINCH );
+				}
 			}
 
 			if( pev->health < 150 )

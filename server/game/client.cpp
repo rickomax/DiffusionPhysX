@@ -26,7 +26,6 @@
 #include "extdll.h"
 #include "util.h"
 #include "cbase.h"
-#include "game/saverestore.h"
 #include "player.h"
 #include "spectator.h"
 #include "game/client.h"
@@ -456,7 +455,7 @@ void Host_Say( edict_t *pEntity, int teamonly )
 		_snprintf( text, sizeof( text ) - 1, "%c%s: ", 2, STRING( pEntity->v.netname ) );
 	text[sizeof( text ) - 1] = '\0';
 
-	j = sizeof(text) - 2 - strlen(text);  // -2 for /n and null terminator
+	j = sizeof(text) - 2 - static_cast<int>(strlen(text));  // -2 for /n and null terminator
 	if ( (int)strlen(p) > j )
 		p[j] = 0;
 
@@ -591,6 +590,15 @@ void ClientCommand( edict_t *pEntity )
 	else if( FIStrEq( pcmd, "dash" ) )
 	{
 		pPlayer->DashButton = true;
+	}
+	else if( FIStrEq( pcmd, "ragdoll_request" ) )
+	{
+		// client asks for the pose of a ragdoll it has no bone data for
+		// (late join, rebuilt model instance); answered with a unicast
+		if( CMD_ARGC() > 1 )
+		{
+			WorldPhysic->SendRagdollPose( pPlayer, atoi( CMD_ARGV( 1 )));
+		}
 	}
 	else if( FIStrEq( pcmd, "electroblast" ) )
 	{
@@ -1245,7 +1253,7 @@ void ServerDeactivate( void )
 	}
 
 	// Peform any shutdown operations here...
-	WorldPhysic->FreeAllBodies();
+	WorldPhysic->FreeWorld();
 
 	// purge all strings
 	g_GameStringPool.FreeAll();
@@ -1266,6 +1274,24 @@ void ServerActivate( edict_t *pEdictList, int edictCount, int clientMax )
 	g_bAllowSaves = true;
 
 	LinkUserMessages ();
+
+	// warm the ragdoll config cache while the map is still loading
+	for ( i = 0; i < edictCount; i++ )
+	{
+		if ( pEdictList[i].free || !pEdictList[i].v.model )
+		{
+			continue;
+		}
+
+		const char *szModel = STRING( pEdictList[i].v.model );
+		if ( szModel && Q_stristr( szModel, ".mdl" ))
+		{
+			WorldPhysic->PrecacheRagdoll( szModel );
+		}
+	}
+
+	// players choose their model after the map loads
+	WorldPhysic->PrecachePlayerRagdolls();
 
 	// Clients have not been initialized yet
 	for ( i = 0; i < edictCount; i++ )
@@ -1416,6 +1442,8 @@ void StartFrame( void )
 
 void EndFrame( void )
 {
+	WorldPhysic->EndFrame();
+	
 	if ( g_fGameOver )
 		return;
 
@@ -1606,6 +1634,9 @@ void ClientPrecache( void )
 	PRECACHE_SOUND("player/pl_pain5.wav");
 	PRECACHE_SOUND("player/pl_pain6.wav");
 	PRECACHE_SOUND("player/pl_pain7.wav");
+
+	PRECACHE_SOUND( "player/headshot1.wav" );
+	PRECACHE_SOUND( "player/headshot2.wav" );
 
 	PRECACHE_MODEL("models/player.mdl");
 
@@ -2019,7 +2050,19 @@ int AddToFullPack( struct entity_state_s *state, int e, edict_t *ent, edict_t *h
 {
 	// don't send if flagged for NODRAW and it's not the host getting the message
 	if ( ( ent->v.effects & EF_NODRAW ) && ( ent != host ) )
-		return 0;
+	{
+		bool followRagdoll = false;
+
+		if( player )
+		{
+			CBasePlayer *pDead = (CBasePlayer *)GET_PRIVATE( ent );
+			if( pDead && pDead->m_hRagdollCorpse != NULL && !( pDead->m_afPhysicsFlags & PFLAG_OBSERVER ))
+				followRagdoll = true;
+		}
+
+		if( !followRagdoll )
+			return 0;
+	}
 
 	// Ignore ents without valid / visible models
 	if ( !ent->v.modelindex || !STRING( ent->v.model ) )

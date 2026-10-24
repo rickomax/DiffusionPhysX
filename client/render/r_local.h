@@ -344,6 +344,11 @@ typedef struct
 	int		cinTextures[MAX_MOVIE_TEXTURES];
 	int		shadowTextures[MAX_SHADOWS];
 	int		shadowCubemaps[MAX_SHADOWS];
+	int		sunShadowTexture;	// directional sun shadow depth map
+	matrix4x4	sunShadowMatrix;	// world -> sun light clip for the current frame
+	bool		sunShadowActive;	// sun shadow map was rendered this frame
+	bool		sunShadowTwoSided;	// sun pass in progress, draw the casters double-sided
+	bool		sunShadowPass;	// the sun depth map is being drawn
 	int		num_subview_used;	// used mirror textures per full frame
 	int		num_shadows_used;	// used shadow textures per full frame
 	int		num_CM_shadows_used; // // used shadow cube textures per full frame
@@ -398,6 +403,8 @@ typedef struct
 	Vector sky_camera_origin;
 	bool fIgnoreSkybox; // we already draw 3d skybox, so don't overwrite it in current pass
 	bool bSkySurfFound; // sets to true if a sky surface was found and turns on 3D sky for the next frame
+	bool bShouldUseDynamicSun; // sets to true if a sky surface was found and turns on dynamic sun for the next frame
+								// this needs a separate check because it should run earlier
 	ref_params_t viewparams;		// local copy of ref_params_t
 	struct movevars_s *movevars;
 
@@ -491,6 +498,8 @@ typedef struct
 	float sunlightscale;
 	float renderscale;
 
+	bool bDoInitBloom;
+
 	int test; // counter/bool for testing purposes
 } ref_globals_t;
 
@@ -518,6 +527,7 @@ typedef struct
 	unsigned int	c_mirror_passes;
 	unsigned int	c_screen_passes;
 	unsigned int	c_shadow_passes;
+	unsigned int	c_sunshadow_passes;
 	unsigned int	c_sky_passes;	// drawing through portal or monitor will be increase counter
 
 	unsigned int	c_total_tris;	// triangle count
@@ -597,7 +607,6 @@ enum
 	R_OCCLUSION_QUERIES_EXT,
 	R_SEAMLESS_CUBEMAP,
 	R_BINARY_SHADER_EXT,
-	R_PARANOIA_EXT,		// custom OpenGL32.dll with hacked function glDepthRange
 	R_KHR_DEBUG,
 	R_ARB_PIXEL_BUFFER_OBJECT,
 	R_EXTCOUNT,		// must be last
@@ -857,6 +866,7 @@ void FSR( void );
 // r_shadows.cpp
 //
 void R_RenderShadowmaps( void );
+void R_RenderSunShadow( void );
 void R_ResetShadowTextures( void );
 
 //

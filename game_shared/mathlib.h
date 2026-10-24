@@ -46,6 +46,21 @@ typedef float vec_t;
 #define METER2INCH( x )		(float)( x * ( 1.0f / METERS_PER_INCH ))
 #define INCH2METER( x )		(float)( x * ( METERS_PER_INCH / 1.0f ))
 
+constexpr inline float CubicInchesPerCubicMeter( void )
+{
+	return 1.0f / ( METERS_PER_INCH * METERS_PER_INCH * METERS_PER_INCH );
+}
+
+constexpr inline float MetricDensityToEngine( float densityMetric )
+{
+	return densityMetric / CubicInchesPerCubicMeter();
+}
+
+constexpr inline float EngineDensityToMetric( float densityEngine )
+{
+	return densityEngine * CubicInchesPerCubicMeter();
+}
+
 // Keeps clutter down a bit, when using a float as a bit-vector
 #define SetBits( iBitVector, bits )	((iBitVector) = (iBitVector) | (bits))
 #define ClearBits( iBitVector, bits )	((iBitVector) = (iBitVector) & ~(bits))
@@ -336,6 +351,7 @@ void SnapPlaneToGrid( struct mplane_s *plane );
 void SnapVectorToGrid( Vector &normal );
 float AngleDiff( float destAngle, float srcAngle );
 float AngleNormalize( float angle );
+void AngleMatrix( const Vector &angles, matrix3x4 &matrix );
 
 int BoxOnPlaneSide( const Vector &emins, const Vector &emaxs, const struct mplane_s *plane );
 #define BOX_ON_PLANE_SIDE(emins, emaxs, p) (((p)->type < 3)?(((p)->dist <= (emins)[(p)->type])? 1 : (((p)->dist >= (emaxs)[(p)->type])? 2 : 3)):BoxOnPlaneSide( (emins), (emaxs), (p)))

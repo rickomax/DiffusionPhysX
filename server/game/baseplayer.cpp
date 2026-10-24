@@ -1149,6 +1149,112 @@ entvars_t *g_pevLastInflictor;  // Set in combat.cpp.  Used to pass the damage i
 //======================================================================================
 // Killed: perform certain actions when player dies
 //======================================================================================
+/*
+===========
+SpawnRagdollCorpse
+
+create corpse entity that copies the model and pose at the moment of death
+============
+*/
+bool CBasePlayer::SpawnRagdollCorpse( void )
+{
+	if( CVAR_GET_FLOAT( "mp_hidecorpses" ) > 0 )
+		return false;
+
+	if( !g_pGameRules->IsMultiplayer() && CVAR_GET_FLOAT( "phys_ragdoll_player_sp" ) == 0.0f )
+		return false;
+
+	if( UTIL_GetModelType( pev->modelindex ) != mod_studio )
+		return false;
+
+	// the corpse wears the model the player selected in multiplayer
+	string_t iszModel = pev->model;
+	char *pszInfo = g_engfuncs.pfnGetInfoKeyBuffer( edict( ));
+	const char *pszSelected = g_engfuncs.pfnInfoKeyValue( pszInfo, "model" );
+
+	if( pszSelected && pszSelected[0] )
+	{
+		// selected models live under models/player/<name>/
+		static const char *dirs[] = { "models/player", "models/players" };
+
+		for( int i = 0; i < 2; i++ )
+		{
+			char szCustom[64], szConfig[64];
+			Q_snprintf( szCustom, sizeof( szCustom ), "%s/%s/%s.mdl", dirs[i], pszSelected, pszSelected );
+			Q_snprintf( szConfig, sizeof( szConfig ), "%s/%s/%s.txt", dirs[i], pszSelected, pszSelected );
+
+			int iLength = 0;
+			byte *pTest = LOAD_FILE( szConfig, &iLength );
+
+			if( !pTest )
+				continue;
+
+			FREE_FILE( pTest );
+			pTest = LOAD_FILE( szCustom, &iLength );
+
+			if( !pTest )
+				continue;
+
+			FREE_FILE( pTest );
+			iszModel = ALLOC_STRING( szCustom );
+
+			// Xash allows this after map load, it just warns
+			PRECACHE_MODEL( (char *)STRING( iszModel ));
+			break;
+		}
+	}
+
+	CBaseEntity *pCorpse = CBaseEntity::Create( "ragdoll_corpse", GetAbsOrigin(), GetAbsAngles(), NULL );
+	if( !pCorpse )
+		return false;
+
+	// a real SET_MODEL links the edict so it actually networks to clients
+	SET_MODEL( ENT( pCorpse->pev ), STRING( iszModel ));
+	UTIL_SetOrigin( pCorpse, GetAbsOrigin( ));
+	UTIL_SetSize( pCorpse->pev, VEC_HULL_MIN, VEC_HULL_MAX );
+
+	// carry the visual state over so the ragdoll spawns from the same pose
+	pCorpse->pev->sequence = m_iRagdollSequence;
+	pCorpse->pev->frame = m_flRagdollFrame;
+	pCorpse->pev->animtime = gpGlobals->time;
+	pCorpse->pev->framerate = 0.0f;
+	pCorpse->pev->skin = pev->skin;
+	pCorpse->pev->body = pev->body;
+	pCorpse->pev->effects = EF_NOINTERP;
+
+	// a live player is colored from its player info
+	int top = Q_atoi( g_engfuncs.pfnInfoKeyValue( pszInfo, "topcolor" ));
+	int bottom = Q_atoi( g_engfuncs.pfnInfoKeyValue( pszInfo, "bottomcolor" ));
+	pCorpse->pev->colormap = ( top & 0xFF ) | (( bottom & 0xFF ) << 8 );
+
+	for( int i = 0; i < 4; i++ )
+	{
+		pCorpse->pev->controller[i] = m_ragdollController[i];
+		pCorpse->pev->blending[i] = m_ragdollBlending[i];
+	}
+
+	pCorpse->SetAbsVelocity( GetAbsVelocity( ));
+
+	// pass our killing blow to the corpse
+	Vector hitPos, hitDir;
+	float hitDamage;
+	int hitGroup;
+
+	if( GetLastHitInfo( hitPos, hitDir, hitDamage, hitGroup ))
+		pCorpse->SetRagdollHit( hitPos, hitDir, hitDamage, hitGroup, GetRagdollImpulseMultiplier( hitDamage ));
+
+	// fall back to the animated death and the classic body queue
+	if( !WorldPhysic->CreateRagdollEntity( pCorpse ))
+	{
+		UTIL_Remove( pCorpse );
+		return false;
+	}
+
+	m_hRagdollCorpse = pCorpse;
+
+	return true;
+}
+
 void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 {
 	CSound *pSound;
@@ -1190,6 +1296,15 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 			pSound->Reset();
 	}
 
+	// grab the live pose before the death animation replaces it
+	m_iRagdollSequence = pev->sequence;
+	m_flRagdollFrame = pev->frame;
+	for( int i = 0; i < 4; i++ )
+	{
+		m_ragdollController[i] = pev->controller[i];
+		m_ragdollBlending[i] = pev->blending[i];
+	}
+
 	SetAnimation( PLAYER_DIE );
 
 	// reset torso controllers
@@ -1205,8 +1320,8 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 	pev->deadflag		= DEAD_DYING;
 	pev->movetype		= MOVETYPE_TOSS;
 	ClearBits( pev->flags, FL_ONGROUND );
-	if (GetAbsVelocity().z < 10)
-		ApplyAbsVelocityImpulse( Vector( 0, 0, RANDOM_FLOAT(0,300)));
+//	if (GetAbsVelocity().z < 10)
+//		ApplyAbsVelocityImpulse( Vector( 0, 0, RANDOM_FLOAT(0,300)));
 
 	// clear out the suit message cache so we don't keep chattering
 	SetSuitUpdate(NULL, FALSE, 0);
@@ -1255,10 +1370,19 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 
 	DeathSound();
 
-	Vector vecAngles = GetAbsAngles();	
+	Vector vecAngles = GetAbsAngles();
 	vecAngles.x = 0;
 	vecAngles.z = 0;
 	SetAbsAngles( vecAngles );
+
+	// hand the death over to a ragdoll corpse
+	m_hRagdollCorpse = NULL;
+
+	if( CVAR_GET_FLOAT( "phys_ragdoll_player" ) != 0.0f && WorldPhysic->Initialized( ))
+	{
+		if( SpawnRagdollCorpse( ))
+			pev->effects |= EF_NODRAW;
+	}
 
 	SetThink(&CBasePlayer::PlayerDeathThink);
 	SetNextThink( 0.1 );
@@ -1306,63 +1430,37 @@ void CBasePlayer::GibMonster( void )
 // SetAnimation: set the activity based on an event or current state
 // ==================================================================
 
-void CBasePlayer::SetAnimation(PLAYER_ANIM playerAnim)
+void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 {
 	int animDesired;
-	float speed;
 	char szAnim[64];
 
-	// diffusion hacks
-	bool ForceReset = false;
-	studiohdr_t *pstudiohdr;
-	mstudioseqdesc_t *pseqdesc = NULL;
-	if( pstudiohdr = (studiohdr_t *)GET_MODEL_PTR( edict() ) )
-	{
-		pseqdesc = (mstudioseqdesc_t *)((byte *)pstudiohdr + pstudiohdr->seqindex) + pev->sequence;
-		if( FBitSet( pev->flags, FL_DUCKING ) && (!strncmp( pseqdesc->label, "ref_aim_", 8 ) || !strncmp( pseqdesc->label, "ref_shoot_", 10 )) )
-			ForceReset = true;
+	float speed = fabs( GetAbsVelocity().Length2D() );
 
-		if( !FBitSet( pev->flags, FL_DUCKING ) && (!strncmp( pseqdesc->label, "crouch_aim_", 11 ) || !strncmp( pseqdesc->label, "crouch_shoot_", 13 )) )
-			ForceReset = true;
-	}
-	if( m_pActiveItem && m_pActiveItem->m_iId != cached_weapon_id )
-	{
-		ForceReset = true;
-		cached_weapon_id = m_pActiveItem->m_iId;
-	}
-	if( pev->waterlevel != cached_waterlevel )
-	{
-		ForceReset = true;
-		cached_waterlevel = pev->waterlevel;
-	}
-
-	speed = GetAbsVelocity().Length2D();
-
-	if (pev->flags & FL_FROZEN || DroneControl)
+	if( (pev->flags & FL_FROZEN) || DroneControl )
 	{
 		speed = 0;
 		playerAnim = PLAYER_IDLE;
-		ForceReset = true;
 	}
 
-	switch (playerAnim) 
+	switch( playerAnim )
 	{
 	case PLAYER_JUMP:
 		m_IdealActivity = ACT_HOP;
 		pev->fuser1 = 0.0f;
 		break;
-	
+
 	case PLAYER_SUPERJUMP:
 		m_IdealActivity = ACT_LEAP;
 		pev->fuser1 = 0.0f;
 		break;
-	
+
 	case PLAYER_DIE:
 		m_IdealActivity = ACT_DIESIMPLE;
-		m_IdealActivity = GetDeathActivity( );
+		m_IdealActivity = GetDeathActivity();
 		break;
 
-	case PLAYER_ATTACK1:	
+	case PLAYER_ATTACK1:
 		switch( m_Activity )
 		{
 		case ACT_HOVER:
@@ -1394,21 +1492,25 @@ void CBasePlayer::SetAnimation(PLAYER_ANIM playerAnim)
 		break;
 	case PLAYER_IDLE:
 	case PLAYER_WALK:
-		if ( !FBitSet( pev->flags, FL_ONGROUND ) && (m_Activity == ACT_HOP || m_Activity == ACT_LEAP) )	// Still jumping
-			m_IdealActivity = m_Activity;
-		else if ( pev->waterlevel > 1 )
+		if( !FBitSet( pev->flags, FL_ONGROUND ) && (m_Activity == ACT_HOP || m_Activity == ACT_LEAP) )	// Still jumping
 		{
-			if ( speed == 0 )
+			m_IdealActivity = m_Activity;
+		}
+		else if( pev->waterlevel > 1 )
+		{
+			if( speed < 1.0f )
 				m_IdealActivity = ACT_HOVER;
 			else
 				m_IdealActivity = ACT_SWIM;
 		}
 		else
+		{
 			m_IdealActivity = ACT_WALK;
+		}
 		break;
 	}
 
-	switch (m_IdealActivity)
+	switch( m_IdealActivity )
 	{
 	case ACT_HOVER:
 	case ACT_LEAP:
@@ -1416,23 +1518,23 @@ void CBasePlayer::SetAnimation(PLAYER_ANIM playerAnim)
 	case ACT_HOP:
 	case ACT_DIESIMPLE:
 	default:
-		if ( m_Activity == m_IdealActivity)
+		if( m_Activity == m_IdealActivity )
 			return;
 		m_Activity = m_IdealActivity;
 
 		animDesired = LookupActivity( m_Activity );
 		// Already using the desired animation?
-		if (pev->sequence == animDesired)
+		if( pev->sequence == animDesired )
 			return;
 
 		pev->gaitsequence = 0;
 		pev->sequence = animDesired;
 		pev->frame = 0;
-		ResetSequenceInfo( );
+		ResetSequenceInfo();
 		return;
 
 	case ACT_RANGE_ATTACK1:
-		if ( FBitSet( pev->flags, FL_DUCKING ) )	// crouching
+		if( FBitSet( pev->flags, FL_DUCKING ) )	// crouching
 			strcpy( szAnim, "crouch_shoot_" );
 		else
 			strcpy( szAnim, "ref_shoot_" );
@@ -1466,69 +1568,31 @@ void CBasePlayer::SetAnimation(PLAYER_ANIM playerAnim)
 			animDesired = 0;
 
 		if( pev->sequence != animDesired || !m_fSequenceLoops )
+		{
 			pev->frame = 0;
+		}
 
 		if( !m_fSequenceLoops )
+		{
 			pev->effects |= EF_NOINTERP;
+		}
 
 		m_Activity = m_IdealActivity;
+
 		pev->sequence = animDesired;
 		ResetSequenceInfo();
 		break;
 
 	case ACT_WALK:
-		/*
-		if (m_Activity != ACT_RANGE_ATTACK1 || m_fSequenceFinished)
-		{
-			if ( FBitSet( pev->flags, FL_DUCKING ) )	// crouching
-				strcpy( szAnim, "crouch_aim_" );
-			else
-				strcpy( szAnim, "ref_aim_" );
-			strcat( szAnim, m_szAnimExtention );
-			animDesired = LookupSequence( szAnim );
-			if (animDesired == -1)
-				animDesired = 0;
-
-			m_Activity = ACT_WALK;
-		}
-		else
-			animDesired = pev->sequence;*/
-			// diffusionplayermodelhack
 		if( (m_Activity != ACT_RANGE_ATTACK1 && m_Activity != ACT_RELOAD) || m_fSequenceFinished )
 		{
-			if( FBitSet( pev->flags, FL_DUCKING ) )    // crouching
+			if( FBitSet( pev->flags, FL_DUCKING ) )
 				strcpy( szAnim, "crouch_aim_" );
 			else
 				strcpy( szAnim, "ref_aim_" );
 			strcat( szAnim, m_szAnimExtention );
 
-			if( fabs(speed) > 110 )
-			{
-				animDesired = pev->sequence;
-
-				if( m_Activity == ACT_HOP )
-				{
-					animDesired = LookupSequence( szAnim );
-					if( animDesired == -1 )
-						animDesired = 0;
-					m_Activity = ACT_WALK;
-				}
-			}
-			else if( (FBitSet( pev->flags, FL_DUCKING )) && (speed < 100) )
-			{
-				animDesired = pev->sequence;
-
-				if( m_Activity == ACT_HOP || m_Activity == ACT_RELOAD )
-				{
-					animDesired = LookupSequence( szAnim );
-					if( animDesired == -1 )
-						animDesired = 0;
-					m_Activity = ACT_WALK;
-				}
-			}
-			else
-				animDesired = LookupSequence( szAnim );
-
+			animDesired = LookupSequence( szAnim );
 			if( animDesired == -1 )
 				animDesired = 0;
 
@@ -1543,76 +1607,37 @@ void CBasePlayer::SetAnimation(PLAYER_ANIM playerAnim)
 
 	if( FBitSet( pev->flags, FL_DUCKING ) )
 	{
-		if( speed == 0 )
+		if( speed < 1.0f )
 		{
 			pev->gaitsequence = LookupActivity( ACT_CROUCHIDLE );
-			// pev->gaitsequence    = LookupActivity( ACT_CROUCH );
 		}
 		else
 		{
-			if( (pev->button & IN_BACK) && FBitSet( pev->flags, FL_DUCKING ) )
-				pev->gaitsequence = LookupSequence( "crawl_back" );
-			else
-				pev->gaitsequence = LookupActivity( ACT_CROUCH );
+			pev->gaitsequence = LookupActivity( ACT_CROUCH );
 		}
 	}
-	else if( speed > 200 )
+	else if( speed > 200.0f )
 	{
-		if( pev->button & IN_BACK )
-			pev->gaitsequence = LookupSequence( "run_back" );
-		else
-			pev->gaitsequence = LookupActivity( ACT_RUN );
+		pev->gaitsequence = LookupActivity( ACT_RUN );
 	}
-	else if( speed > 0 )
+	else if( speed > 1.0f )
 	{
-		if( pev->button & IN_BACK )
-			pev->gaitsequence = LookupSequence( "walk_back" );
-		else
-			pev->gaitsequence = LookupActivity( ACT_WALK );
+		pev->gaitsequence = LookupActivity( ACT_WALK );
 	}
 	else
 	{
-		// pev->gaitsequence	= LookupActivity( ACT_WALK );
-		pev->gaitsequence	= LookupSequence( "deep_idle" );
+		pev->gaitsequence = LookupSequence( "deep_idle" );
 	}
-
-	if( ForceReset )
-	{
-		m_Activity = ACT_RESET;
-
-		if( FBitSet( pev->flags, FL_DUCKING ) )    // crouching
-			strcpy( szAnim, "crouch_aim_" );
-		else
-			strcpy( szAnim, "ref_aim_" );
-		strcat( szAnim, m_szAnimExtention );
-
-		animDesired = LookupSequence( szAnim );
-		if( animDesired == -1 )
-			animDesired = 0;
-
-		if( m_Activity == ACT_HOP )
-		{
-			animDesired = LookupSequence( szAnim );
-			if( animDesired == -1 )
-				animDesired = 0;
-			m_Activity = ACT_WALK;
-		}
-
-		pev->sequence = animDesired;
-		pev->frame = 0;
-		ResetSequenceInfo();
-	}
-
 
 	// Already using the desired animation?
-	if ( pev->sequence == animDesired)
+	if( pev->sequence == animDesired )
 		return;
 
 	//ALERT( at_console, "Set animation to %d\n", animDesired );
 	// Reset to first frame of desired animation
-	pev->sequence		= animDesired;
-	pev->frame			= 0;
-	ResetSequenceInfo( );
+	pev->sequence = animDesired;
+	pev->frame = 0;
+	ResetSequenceInfo();
 }
 
 //============================================================================
@@ -1858,6 +1883,13 @@ BOOL CBasePlayer::IsOnLadder( void )
 void CBasePlayer::PlayerDeathThink(void)
 {
 	float flForward;
+	if( m_hRagdollCorpse != NULL && !( m_afPhysicsFlags & PFLAG_OBSERVER ))
+	{
+		pev->solid = SOLID_NOT;
+		pev->movetype = MOVETYPE_NONE;
+		SetAbsVelocity( g_vecZero );
+		UTIL_SetOrigin( this, m_hRagdollCorpse->GetAbsOrigin( ));
+	}
 
 	if (FBitSet(pev->flags, FL_ONGROUND))
 	{
@@ -1900,7 +1932,11 @@ void CBasePlayer::PlayerDeathThink(void)
 	
 	StopAnimation();
 
-	pev->effects |= EF_NOINTERP;
+	// let the client interpolate the origin the death cam trails
+	if( m_hRagdollCorpse != NULL )
+		pev->effects &= ~EF_NOINTERP;
+	else
+		pev->effects |= EF_NOINTERP;
 //	pev->effects &= ~EF_DIMLIGHT;
 //	pev->framerate = 0.0;
 
@@ -1931,8 +1967,11 @@ void CBasePlayer::PlayerDeathThink(void)
 		{
 			if( !m_hKiller->IsAlive() )
 			{
-				m_hKiller = NULL;
-				fLerpToKiller = 0.0f;
+				pev->iuser2 = 0;
+				MESSAGE_BEGIN( MSG_ONE, gmsgTempEnt, NULL, pev );
+					WRITE_BYTE( TE_PLAYERKILLERIDX );
+					WRITE_BYTE( 0 );
+				MESSAGE_END();
 				StartDeathCam(); // go to dead camera.
 			}
 			else
@@ -1947,21 +1986,35 @@ void CBasePlayer::PlayerDeathThink(void)
 					pev->effects = EF_NODRAW;
 				}
 
-				if( m_afPhysicsFlags & PFLAG_OBSERVER ) // observe the killer position
+				if( gpGlobals->time > (m_fDeadTime + 1) )
 				{
-					Vector MyOrg = GetAbsOrigin();
-					Vector KillerOrg = m_hKiller->GetAbsOrigin();
-					// lerp into killer's position
-					Vector dest;
-					if( fLerpToKiller < 1.0f )
-						fLerpToKiller += 2.0f * gpGlobals->frametime;
-					VectorLerp( MyOrg, fLerpToKiller, KillerOrg, dest );
-					SetAbsOrigin( dest );
+					if( m_afPhysicsFlags & PFLAG_OBSERVER ) // observe the killer position
+					{
+						pev->iuser2 = m_hKiller->entindex();
+						if( bSendKillerIndex )
+						{
+							Vector Org = GetAbsOrigin();
+							MESSAGE_BEGIN( MSG_ONE, gmsgTempEnt, NULL, pev );
+								WRITE_BYTE( TE_PLAYERKILLERIDX );
+								WRITE_BYTE( m_hKiller->entindex() );
+								WRITE_COORD( Org.x );
+								WRITE_COORD( Org.y );
+								WRITE_COORD( Org.z );
+							MESSAGE_END();
+
+							bSendKillerIndex = false;
+						}
+					}
 				}
 			}
 		}
 		else if( (gpGlobals->time > (m_fDeadTime + 5)) && !(m_afPhysicsFlags & PFLAG_OBSERVER) )
 		{
+			pev->iuser2 = 0;
+			MESSAGE_BEGIN( MSG_ONE, gmsgTempEnt, NULL, pev );
+				WRITE_BYTE( TE_PLAYERKILLERIDX );
+				WRITE_BYTE( 0 );
+			MESSAGE_END();
 			StartDeathCam(); // go to dead camera.
 		}
 	}
@@ -5388,6 +5441,7 @@ void CBasePlayer::Spawn( void )
 	if( g_pGameRules->IsMultiplayer() )
 	{
 		BlastAbilityLVL = mp_blastlevel.value;
+		NextRechargeTime = gpGlobals->time + 30;
 		ShieldAvailableLVL = 3;
 		bShowZoomHint = true;
 	}
@@ -5455,9 +5509,21 @@ void CBasePlayer::Spawn( void )
 	CreateFlashlightMonster();
 
 	m_hKiller = NULL;
-	fLerpToKiller = 0.0f;
+	bSendKillerIndex = false;
 
 	g_pGameRules->PlayerSpawn( this );
+
+	// player can get suit in SP from GetPlayerSpawnSpot
+	// or in multiplayer from PlayerSpawn
+	// if for whatever reason he doesn't have suit after all that, choose temporary non-suit model
+	// getting item_suit will set body to 0
+	if( !HasWeapon( WEAPON_SUIT ) )
+		pev->body = 1;
+	else
+		pev->body = 0;
+
+	// clear spectator data
+	pev->iuser1 = pev->iuser2 = 0;
 }
 
 void CBasePlayer::SetHUDTexts(void)

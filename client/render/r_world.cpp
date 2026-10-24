@@ -690,6 +690,15 @@ static void Mod_SetupWorldLeafs( void )
 		out->nummarksurfaces = in->nummarksurfaces;
 		out->cluster = in->cluster; // helper to acess to uncompressed visdata
 		out->fogDensity = in->ambient_sound_level[AMBIENT_SKY];
+		out->hasSky = false;
+		for( int j = 0; j < out->nummarksurfaces; j++ )
+		{
+			if( FBitSet( out->firstmarksurface[j]->flags, SURF_DRAWSKY ) )
+			{
+				out->hasSky = true;
+				break;
+			}
+		}
 	}
 }
 
@@ -1959,6 +1968,11 @@ static void Mod_LoadWorld( model_t *mod, const byte *buf )
 		{
 			SetBits( surf->flags, SURF_FULLBRIGHT );
 		}
+		else if( !Q_strncmp( tex->name, "blocklight", 10 ) ) // using strncmp so mappers can use various textures like blocklight_grate etc.
+		{
+			SetBits( surf->flags, SURF_SHADOWPASS );
+			SetBits( surf->flags, SURF_FULLBRIGHT );
+		}
 		else if( !Q_strncmp( tex->name, "monitor", 7 ) )
 		{
 			SetBits( world->features, WORLD_HAS_SCREENS );
@@ -2758,7 +2772,7 @@ void R_DrawShadowBrushList( void )
 			cached_texture = curtex;
 		}
 
-		if( es->culltype == CULL_OTHER ) // probably a twoside texture
+		if( tr.sunShadowTwoSided || es->culltype == CULL_OTHER ) // sun pass draws double-sided
 			GL_Cull( GL_NONE );
 		else
 			GL_Cull( GL_FRONT );
@@ -2943,6 +2957,19 @@ void R_DrawBrushList( void )
 			pglUniform1fvARB( RI->currentshader->u_LightStyleValues, MAX_LIGHTSTYLES, &tr.lightstyles[0] );
 			pglUniformMatrix4fvARB( RI->currentshader->u_ModelMatrix, 1, GL_FALSE, &glm->modelMatrix[0] );
 			pglUniform4fvARB( RI->currentshader->u_BrushParams, 3, &brush_params[0][0] );
+
+			// realtime sun shadow (only bound for the sun shader variant)
+			if( tr.sunShadowActive && RI->currentshader->u_SunMatrix != -1 )
+			{
+				GLfloat gl_sunMatrix[16];
+				tr.sunShadowMatrix.CopyToArray( gl_sunMatrix );
+				pglUniformMatrix4fvARB( RI->currentshader->u_SunMatrix, 1, GL_FALSE, gl_sunMatrix );
+
+				const float sunTexel = 1.0f / (float)RENDER_GET_PARM( PARM_TEX_WIDTH, tr.sunShadowTexture );
+				const float sunIntensity = bound( 0.0f, r_sun_shadow_intensity->value, 1.0f );
+				pglUniform4fARB( RI->currentshader->u_SunShadowParams, sunTexel, sunIntensity, r_sun_shadow_dist->value, r_sun_shadow_dist->value * 0.25f );
+				GL_Bind( GL_TEXTURE7, tr.sunShadowTexture );
+			}
 
 			// reset cache
 			cached_texofs[0] = -1.0f;
@@ -3346,7 +3373,14 @@ void R_DrawBrushModel( cl_entity_t *e, bool translucent )
 	// accumulate surfaces, build the lightmaps
 	psurf = &clmodel->surfaces[clmodel->firstmodelsurface];
 	for( int i = 0; i < clmodel->nummodelsurfaces; i++, psurf++ )
-	{	
+	{
+		if( !(RI->params & RP_SHADOWPASS) && !r_show_blocklight->value )
+		{
+			// skip shadow surfaces during regular pass
+			if( psurf->flags & SURF_SHADOWPASS )
+				continue;
+		}
+
 		if( FBitSet( psurf->flags, SURF_WATER ) )
 		{
 			if( FBitSet( psurf->flags, SURF_PLANEBACK ) )
@@ -3698,7 +3732,10 @@ void R_WorldMarkVisibleFaces( void )
 	const bool bBuildingCubemaps = IsBuildingCubemaps();
 
 	if( RP_NORMALPASS() )
+	{
 		tr.bSkySurfFound = false;
+		tr.bShouldUseDynamicSun = false;
+	}
 
 	// always skip the leaf 0, because it's an outside leaf
 	for( i = 1, leaf = &world->leafs[1]; i < world->numleafs; i++, leaf++ )
@@ -3706,6 +3743,9 @@ void R_WorldMarkVisibleFaces( void )
 		// during cubemap pass, all faces are visible - this way pvs is ignored and all faces have correct gamma. Fix it properly?
 		if( (CHECKVISBIT( RI->visbytes, leaf->cluster ) || bBuildingCubemaps) && (leaf->efrags || leaf->nummarksurfaces) )
 		{
+			if( RP_NORMALPASS() && leaf->hasSky )
+				tr.bShouldUseDynamicSun = true;
+
 			if( RI->frustum.CullBox( leaf->mins, leaf->maxs ) )
 				continue;
 
@@ -3735,6 +3775,19 @@ void R_WorldMarkVisibleFaces( void )
 				surf = worldmodel->surfaces + facenum;
 				esrf = surf->info;
 
+				if( !(RI->params & RP_SHADOWPASS) && !r_show_blocklight->value )
+				{
+					// skip shadow surfaces during regular pass
+					if( surf->flags & SURF_SHADOWPASS )
+						continue;
+				}
+
+				if( FBitSet( surf->flags, SURF_DRAWSKY ) )
+				{
+					if( RP_NORMALPASS() )
+						tr.bSkySurfFound = true; // 3D sky will be rendered next frame (3dsky visibility state is delayed by 1 frame)
+				}
+
 				R_AddGrassToChain( surf, NULL, false, leaf ); // update leaf bounds
 
 				// in some cases surface is invisible but grass is visible
@@ -3742,13 +3795,13 @@ void R_WorldMarkVisibleFaces( void )
 #if 1
 				if( !force )
 				{
-					backplane = FBitSet( surf->flags, SURF_PLANEBACK ) ? true : false;
-					if( FBitSet( RI->params, RP_OVERVIEW ) )
-						dist = surf->plane->normal[2];
-					else dist = PlaneDiff( tr.modelorg, surf->plane );
-
 					if( !bBuildingCubemaps )
 					{
+						backplane = FBitSet( surf->flags, SURF_PLANEBACK ) ? true : false;
+						if( FBitSet( RI->params, RP_OVERVIEW ) )
+							dist = surf->plane->normal[2];
+						else dist = PlaneDiff( tr.modelorg, surf->plane );
+
 						if( (backplane && dist >= -BACKFACE_EPSILON) || (!backplane && dist <= BACKFACE_EPSILON) )
 							continue; // wrong side
 
@@ -3762,9 +3815,6 @@ void R_WorldMarkVisibleFaces( void )
 #endif
 				if( FBitSet( surf->flags, SURF_DRAWSKY ) )
 				{
-					if( RP_NORMALPASS() )
-						tr.bSkySurfFound = true; // 3D sky will be rendered next frame (3dsky visibility state is delayed by 1 frame)
-					
 					if( FBitSet( RI->params, RP_SHADOWPASS ) )
 						continue;
 

@@ -65,6 +65,7 @@ extern cvar_t	*r_show_renderpass;
 extern cvar_t	*r_show_light_scissors;
 extern cvar_t	*r_show_normals;
 extern cvar_t	*r_show_lightprobes;
+extern cvar_t *r_show_blocklight;
 extern cvar_t	*r_fade_props;
 extern cvar_t	*r_show_cubemaps;
 extern cvar_t	*r_bloom_sprites;
@@ -94,6 +95,14 @@ extern cvar_t *cl_showhealthbars;
 extern cvar_t *cl_largehud;
 extern cvar_t *cl_centerhud;
 extern cvar_t *r_shadowquality;
+extern cvar_t *r_sun_shadow;
+extern cvar_t *r_sun_shadow_dist;
+extern cvar_t *r_sun_shadow_size;
+extern cvar_t *r_sun_shadow_intensity;
+extern cvar_t *r_sun_shadow_offset_factor;
+extern cvar_t *r_sun_shadow_offset_units;
+extern cvar_t *r_sun_shadow_bias;
+extern cvar_t *r_sun_shadow_twosided;
 extern cvar_t *r_mirrorquality;
 extern cvar_t *r_testdlight;
 extern cvar_t *gl_lensflare;
@@ -110,11 +119,14 @@ extern cvar_t *r_show_tbn;
 extern cvar_t *r_flashlightlockposition;
 extern cvar_t *cl_crosshair;
 extern cvar_t *cl_crosshair_reloading;
+extern cvar_t *cl_crosshair_scale;
 extern cvar_t *cl_useicon;
 extern cvar_t *cl_oldammohud;
 extern cvar_t *room_type;
 extern cvar_t *room_type_auto;
 extern cvar_t *ui_is_active; // internal cvar
+extern cvar_t *ui_crosshair_setup; // internal cvar
+extern cvar_t *ui_shadersdone;
 extern cvar_t *ui_videooptions_active;
 extern cvar_t *ui_forcenoblur;
 extern cvar_t *cl_background;
@@ -123,5 +135,6 @@ extern cvar_t *r_pvs_radius;
 extern cvar_t *r_decals_ext;
 extern cvar_t *gl_fsr;
 extern cvar_t *fps_max;
+extern cvar_t *gl_texture_nearest;
 
 #endif//R_CVARS_H

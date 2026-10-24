@@ -38,10 +38,7 @@ int CL_IsThirdPerson( void )
 
 bool CL_IsCrouching( void )
 {
-	if( gEngfuncs.GetLocalPlayer()->curstate.usehull == 1 )
-		return true;
-
-	return false;
+	return (gEngfuncs.GetLocalPlayer()->curstate.usehull == 1);
 }
 
 cl_entity_t *v_intermission_spot;
@@ -80,6 +77,7 @@ cvar_t *cl_bob;
 cvar_t *cl_bobup;
 cvar_t *cl_waterdist;
 cvar_t *cl_chasedist;
+cvar_t *cl_deathcam_smooth;
 cvar_t *cl_weaponlag;
 cvar_t *cl_vsmoothing;
 cvar_t *v_centermove;
@@ -124,6 +122,7 @@ cvar_t *r_show_renderpass;
 cvar_t *r_show_light_scissors;
 cvar_t *r_show_normals;
 cvar_t *r_show_lightprobes;
+cvar_t *r_show_blocklight;
 cvar_t *r_fade_props;
 cvar_t *r_show_cubemaps;
 cvar_t *r_bloom_sprites;
@@ -168,6 +167,7 @@ cvar_t *r_show_tbn;
 cvar_t *r_flashlightlockposition;
 cvar_t *cl_crosshair;
 cvar_t *cl_crosshair_reloading;
+cvar_t *cl_crosshair_scale;
 cvar_t *cl_useicon;
 cvar_t *cl_oldammohud;
 cvar_t *room_type;
@@ -176,6 +176,14 @@ cvar_t *r_blur;
 cvar_t *r_blur_threshold;
 cvar_t *r_blur_strength; // only horizontal blur
 cvar_t *r_shadowquality;
+cvar_t *r_sun_shadow;
+cvar_t *r_sun_shadow_dist;
+cvar_t *r_sun_shadow_size;
+cvar_t *r_sun_shadow_intensity;
+cvar_t *r_sun_shadow_offset_factor;
+cvar_t *r_sun_shadow_offset_units;
+cvar_t *r_sun_shadow_bias;
+cvar_t *r_sun_shadow_twosided;
 cvar_t *r_mirrorquality;
 cvar_t *r_testdlight;
 cvar_t *hud_fontscale;
@@ -183,6 +191,7 @@ cvar_t *r_pvs_radius;
 cvar_t *r_decals_ext;
 cvar_t *gl_fsr;
 cvar_t *fps_max;
+cvar_t *gl_texture_nearest;
 
 cvar_t	v_iyaw_cycle = { "v_iyaw_cycle", "2", 0, 2 };
 cvar_t	v_iroll_cycle = { "v_iroll_cycle", "0.5", 0, 0.5 };
@@ -192,9 +201,11 @@ cvar_t	v_iroll_level = { "v_iroll_level", "0.1", 0, 0.1f };
 cvar_t	v_ipitch_level = { "v_ipitch_level", "0.3", 0, 0.3f };
 
 cvar_t *ui_is_active;
+cvar_t *ui_shadersdone;
 cvar_t *ui_videooptions_active;
 cvar_t *ui_forcenoblur;
 cvar_t *cl_background;
+cvar_t *ui_crosshair_setup;
 
 int g_iPlayerClass;
 int g_iTeamNumber;
@@ -324,6 +335,7 @@ void V_Init( void )
 	cl_bobup = CVAR_REGISTER( "cl_bobup", "0.5", 0 );
 	cl_waterdist = CVAR_REGISTER( "cl_waterdist", "4", 0 );
 	cl_chasedist = CVAR_REGISTER( "cl_chasedist", "112", 0 );
+	cl_deathcam_smooth = CVAR_REGISTER( "cl_deathcam_smooth", "14", FCVAR_ARCHIVE );
 	cl_weaponlag = CVAR_REGISTER( "cl_weaponlag", "0.3", FCVAR_ARCHIVE );
 	cl_hitmarker = CVAR_REGISTER( "cl_hitmarker", "1", FCVAR_ARCHIVE );
 	cl_achievement_notify = CVAR_REGISTER( "cl_achievement_notify", "1", FCVAR_ARCHIVE );
@@ -342,6 +354,7 @@ void V_Init( void )
 	r_show_tbn = CVAR_REGISTER( "r_show_tbn", "0", 0 );
 	cl_crosshair = CVAR_REGISTER( "cl_crosshair", "1", FCVAR_ARCHIVE );
 	cl_crosshair_reloading = CVAR_REGISTER( "cl_crosshair_reloading", "1", FCVAR_ARCHIVE );
+	cl_crosshair_scale = CVAR_REGISTER( "cl_crosshair_scale", "1.0", FCVAR_ARCHIVE );
 	cl_useicon = CVAR_REGISTER( "cl_useicon", "1", FCVAR_ARCHIVE );
 	cl_oldammohud = CVAR_REGISTER( "cl_oldammohud", "0", FCVAR_ARCHIVE ); // Camblu request
 	cl_largehud = CVAR_REGISTER( "cl_largehud", "2", FCVAR_ARCHIVE );
@@ -375,6 +388,7 @@ void V_Init( void )
 	r_lighting_extended = CVAR_GET_POINTER( "r_lighting_extended" );
 	r_pvs_radius = CVAR_GET_POINTER( "r_pvs_radius" );
 	fps_max = CVAR_GET_POINTER( "fps_max" );
+	gl_texture_nearest = CVAR_GET_POINTER( "gl_texture_nearest" );
 
 	cl_vsmoothing = CVAR_REGISTER( "cl_vsmoothing", "0.05", FCVAR_ARCHIVE );
 	gl_allow_portals = CVAR_REGISTER( "gl_allow_portals", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL );
@@ -399,6 +413,7 @@ void V_Init( void )
 	r_show_light_scissors = CVAR_REGISTER( "r_show_light_scissors", "0", 0 );
 	r_show_normals = CVAR_REGISTER( "r_show_normals", "0", 0 );
 	r_show_lightprobes = CVAR_REGISTER( "r_show_lightprobes", "0", 0 );
+	r_show_blocklight = CVAR_REGISTER( "r_show_blocklight", "0", 0 );
 
 	r_fade_props = CVAR_REGISTER( "r_fade_props", "1", FCVAR_ARCHIVE );
 	r_show_cubemaps = CVAR_REGISTER( "r_show_cubemaps", "0", FCVAR_ARCHIVE );
@@ -418,6 +433,14 @@ void V_Init( void )
 	gl_smaa = CVAR_REGISTER( "gl_smaa", "0", FCVAR_ARCHIVE );
 	gl_tonemap = CVAR_REGISTER( "gl_tonemap", "0", FCVAR_ARCHIVE );
 	r_shadowquality = CVAR_REGISTER( "r_shadowquality", "2", FCVAR_ARCHIVE );
+	r_sun_shadow = CVAR_REGISTER( "r_sun_shadow", "1", FCVAR_ARCHIVE );		// realtime directional shadow for the sun near the view
+	r_sun_shadow_dist = CVAR_REGISTER( "r_sun_shadow_dist", "800", FCVAR_ARCHIVE );	// cascade coverage distance around the view
+	r_sun_shadow_size = CVAR_REGISTER( "r_sun_shadow_size", "1024", FCVAR_ARCHIVE );	// sun shadow map resolution
+	r_sun_shadow_intensity = CVAR_REGISTER( "r_sun_shadow_intensity", "0.65", FCVAR_ARCHIVE );	// how dark the sun shadow gets, the rest stands in for baked bounce light
+	r_sun_shadow_offset_factor = CVAR_REGISTER( "r_sun_shadow_offset_factor", "2", FCVAR_ARCHIVE );	// slope-scaled depth offset for the sun shadow casters
+	r_sun_shadow_offset_units = CVAR_REGISTER( "r_sun_shadow_offset_units", "4", FCVAR_ARCHIVE );	// constant depth offset for the sun shadow casters
+	r_sun_shadow_bias = CVAR_REGISTER( "r_sun_shadow_bias", "2", FCVAR_ARCHIVE );		// receiver depth bias in world units, raise to fight acne, lower to fight peter-panning
+	r_sun_shadow_twosided = CVAR_REGISTER( "r_sun_shadow_twosided", "1", FCVAR_ARCHIVE );	// draw the sun shadow casters double-sided so one-sided walls can't leak light
 	r_mirrorquality = CVAR_REGISTER( "r_mirrorquality", "3", FCVAR_ARCHIVE );
 	r_testdlight = CVAR_REGISTER( "r_testdlight", "0", FCVAR_CHEAT );
 	gl_lensflare = CVAR_REGISTER( "gl_lensflare", "1", FCVAR_ARCHIVE );
@@ -441,6 +464,8 @@ void V_Init( void )
 	ADD_COMMAND( "centerview", V_StartPitchDrift );
 
 	ui_is_active = CVAR_REGISTER( "ui_is_active", "0", FCVAR_UNLOGGED );
+	ui_shadersdone = CVAR_REGISTER( "ui_shadersdone", "0", FCVAR_UNLOGGED );
+	ui_crosshair_setup = CVAR_REGISTER( "ui_crosshair_setup", "0", FCVAR_UNLOGGED );
 	ui_videooptions_active = CVAR_REGISTER( "ui_videooptions_active", "0", FCVAR_UNLOGGED );
 	ui_forcenoblur = CVAR_REGISTER( "ui_forcenoblur", "0", FCVAR_UNLOGGED );
 	cl_background = CVAR_GET_POINTER( "cl_background" );
@@ -453,6 +478,8 @@ void V_VidInit( void )
 	gun_roll_angle = 0;
 	weapon_move_angles = g_vecZero;
 	tmpViewEnt = NULL;
+	gHUD.iKillerIndex = 0;
+	gHUD.fLerpToKiller = 0.0f;
 	if( vid_brightness->value <= 0.0 ) CVAR_SET_FLOAT( "brightness", 1.5f ); // set default brightness to middle
 }
 
@@ -1092,7 +1119,7 @@ int V_FindViewModelByWeaponModel( int weaponindex )
 
 	if( weaponModel )
 	{
-		int len = strlen( weaponModel->name );
+		int len = static_cast<int>(strlen( weaponModel->name ));
 		int i = 0;
 
 		while( modelmap[i] != NULL )
@@ -1176,6 +1203,31 @@ void V_GetChasePos( int target, Vector &cl_angles, Vector &origin, Vector &angle
 		angles = cl_angles;
 
 	origin = ent->origin;
+
+	// a dead player trails its ragdoll, whose origin only moves at the ragdoll tick
+	static Vector chaseOrg;
+	static float chaseTime = 0.0f;
+	static int chaseTarget = 0;
+
+	if( FBitSet( ent->curstate.effects, EF_NODRAW ) && cl_deathcam_smooth->value > 0.0f )
+	{
+		float now = gEngfuncs.GetClientTime();
+		float gap = now - chaseTime;
+
+		// new target, a stall or a teleport: start from the target
+		if( chaseTarget != target || chaseTime == 0.0f || gap <= 0.0f || gap > 0.5f || ( origin - chaseOrg ).Length() > 256.0f )
+			chaseOrg = origin;
+		else
+			chaseOrg += ( origin - chaseOrg ) * ( 1.0f - exp( -g_fFrametime * cl_deathcam_smooth->value ));
+
+		chaseTime = now;
+		chaseTarget = target;
+		origin = chaseOrg;
+	}
+	else
+	{
+		chaseTime = 0.0f;
+	}
 
 	origin[2] += 28; // DEFAULT_VIEWHEIGHT - some offset
 
@@ -1592,7 +1644,7 @@ void V_CalcCameraRefdef( struct ref_params_s *pparams )
 					CarViewAng = view->angles;
 
 				if( lerptime < 1.0f )
-					lerptime += g_fFrametime * (lerptime + 0.25f);
+					lerptime += g_fFrametime * (lerptime + 0.1f + (gHUD.CarSpeed * 0.01));
 				InterpolateOrigin( CarViewOrg, view->origin, CarViewOrg, lerptime );
 				InterpolateAngles( CarViewAng, view->angles, CarViewAng, lerptime );
 				pparams->viewangles = CarViewAng;
@@ -1640,19 +1692,35 @@ void V_CalcCameraRefdef( struct ref_params_s *pparams )
 				// NOTE: fov computation moved into r_main.cpp
 
 				// this is smooth stair climbing in thirdperson mode but not affected for client model :(
-				if( !pparams->smoothing && pparams->onground && view->origin[2] - oldz > 0.0f && viewmonster != NULL )
+				if( !pparams->smoothing && pparams->onground && viewmonster != NULL )
 				{
-					float steptime;
+					const float delta = view->origin[2] - oldz;
+					float steptime = pparams->time - lasttime;
+					if( steptime < 0 )
+						steptime = 0;
 
-					steptime = pparams->time - lasttime;
-					if( steptime < 0 ) steptime = 0;
+					if( delta > 0.0f )
+					{
+						oldz += steptime * 150.0f;
 
-					oldz += steptime * 150.0f;
+						if( oldz > view->origin[2] )
+							oldz = view->origin[2];
+						if( view->origin[2] - oldz > pparams->movevars->stepsize )
+							oldz = view->origin[2] - pparams->movevars->stepsize;
+					}
+					else if( delta < 0.0f )
+					{
+						oldz -= steptime * 150.0f;
 
-					if( oldz > view->origin[2] )
+						if( oldz < view->origin[2] )
+							oldz = view->origin[2];
+						if( oldz - view->origin[2] > pparams->movevars->stepsize )
+							oldz = view->origin[2] + pparams->movevars->stepsize;
+					}
+					else
+					{
 						oldz = view->origin[2];
-					if( view->origin[2] - oldz > pparams->movevars->stepsize )
-						oldz = view->origin[2] - pparams->movevars->stepsize;
+					}
 
 					pparams->vieworg[2] += oldz - view->origin[2];
 				}
@@ -1774,33 +1842,103 @@ void V_CalcThirdPersonRefdef( struct ref_params_s *pparams )
 {
 	static float lasttime, oldz = 0;
 
-	pparams->vieworg = pparams->simorg;
-	pparams->vieworg += pparams->viewheight;
+	pparams->vieworg = pparams->simorg + pparams->viewheight;
 	pparams->viewangles = pparams->cl_viewangles;
+
+	if( pparams->health <= 0 && g_iUser2 > 0 )
+	{
+		cl_entity_t *ent = gEngfuncs.GetEntityByIndex( g_iUser2 );
+		if( ent && ent != GET_LOCAL_PLAYER() && ent->player )
+		{
+			Vector MyOrg = gHUD.vDeathPosition + pparams->viewheight;
+			Vector KillerOrg = ent->origin + pparams->viewheight;
+
+			Vector dest;
+			if( gHUD.fLerpToKiller < 1.0f )
+				gHUD.fLerpToKiller += g_fFrametime * 2.0f;
+			VectorLerp( MyOrg, gHUD.fLerpToKiller, KillerOrg, dest );
+			V_GetChaseOrigin( pparams->viewangles, dest, cl_chasedist->value, pparams->vieworg );
+		}
+
+		return;
+	}
 
 	V_CalcSendOrigin( pparams );
 
-	// this is smooth stair climbing in thirdperson mode but not affected for client model :(
-	if( !pparams->smoothing && pparams->onground && pparams->simorg[2] - oldz > 0.0f )
+	static int lastHull = -1;
+	const int currentHull = gEngfuncs.GetLocalPlayer()->curstate.usehull;
+	if( currentHull == 1 && lastHull != 1 )
 	{
-		float steptime;
+		oldz = pparams->simorg[2];
+	}
+	lastHull = currentHull;
 
-		steptime = pparams->time - lasttime;
-		if( steptime < 0 ) steptime = 0;
+	const bool bSkipDownwardSmooth = (gHUD.m_iKeyBits & IN_DUCK) || CL_IsCrouching();
+	const int iUpsideDown = (gEngfuncs.GetLocalPlayer()->curstate.effects & EF_UPSIDEDOWN) ? -1 : 1;
 
-		oldz += steptime * 150.0f;
+	// this is smooth stair climbing in thirdperson mode but not affected for client model :(
+	if( !pparams->smoothing && pparams->onground )
+	{
+		const float delta = (pparams->simorg[2] - oldz) * iUpsideDown;
+		float steptime = pparams->time - lasttime;
+		if( steptime < 0 )
+			steptime = 0;
 
-		if( oldz > pparams->simorg[2] )
+		if( delta > 0.0f )
+		{
+			// stepping up
+			oldz += steptime * 150.0f * iUpsideDown;
+			if( (oldz - pparams->simorg[2]) * iUpsideDown > 0.0f )
+				oldz = pparams->simorg[2];
+			if( (pparams->simorg[2] - oldz) * iUpsideDown > pparams->movevars->stepsize )
+				oldz = pparams->simorg[2] - pparams->movevars->stepsize * iUpsideDown;
+
+			pparams->vieworg[2] += oldz - pparams->simorg[2];
+		}
+		else if( delta < 0.0f && !bSkipDownwardSmooth )
+		{
+			// stepping down
+			oldz -= steptime * 150.0f * iUpsideDown;
+			if( (oldz - pparams->simorg[2]) * iUpsideDown < 0.0f )
+				oldz = pparams->simorg[2];
+			if( (oldz - pparams->simorg[2]) * iUpsideDown > pparams->movevars->stepsize )
+				oldz = pparams->simorg[2] + pparams->movevars->stepsize * iUpsideDown;
+
+			pparams->vieworg[2] += oldz - pparams->simorg[2];
+		}
+		else
+		{
 			oldz = pparams->simorg[2];
-		if( pparams->simorg[2] - oldz > pparams->movevars->stepsize )
-			oldz = pparams->simorg[2] - pparams->movevars->stepsize;
-
-		pparams->vieworg[2] += oldz - pparams->simorg[2];
+		}
 	}
 	else
+	{
 		oldz = pparams->simorg[2];
+	}
 
 	lasttime = pparams->time;
+
+	// the ragdoll origin only moves at the server's ragdoll tick
+	static Vector deathCamOrg;
+	static float deathCamTime = 0.0f;
+
+	if( pparams->health <= 0 && cl_deathcam_smooth->value > 0.0f )
+	{
+		float gap = pparams->time - deathCamTime;
+
+		// just died, a stall or a teleport: start from the target
+		if( deathCamTime == 0.0f || gap <= 0.0f || gap > 0.5f || ( pparams->vieworg - deathCamOrg ).Length() > 256.0f )
+			deathCamOrg = pparams->vieworg;
+		else
+			deathCamOrg += ( pparams->vieworg - deathCamOrg ) * ( 1.0f - exp( -pparams->frametime * cl_deathcam_smooth->value ));
+
+		deathCamTime = pparams->time;
+		pparams->vieworg = deathCamOrg;
+	}
+	else
+	{
+		deathCamTime = 0.0f;
+	}
 
 	V_GetChaseOrigin( pparams->viewangles, pparams->vieworg, cl_chasedist->value, pparams->vieworg );
 
@@ -2122,8 +2260,8 @@ void V_CalcFirstPersonRefdef( struct ref_params_s *pparams )
 	cl_entity_t *view;
 	cl_entity_t *plr;
 	Vector	angles;
-	static float lasttime;
-	static bool IsUpsideDown;
+	static float lasttime = 0;
+	static bool IsUpsideDown = false;
 
 	V_DriftPitch( pparams );
 
@@ -2368,26 +2506,62 @@ void V_CalcFirstPersonRefdef( struct ref_params_s *pparams )
 	pparams->viewangles += pparams->punchangle;
 
 	static float oldz = 0;
+	static int lastHull = -1;
 
-	if( !pparams->smoothing && pparams->onground && pparams->simorg[2] - oldz > 0.0f )
+	// fuck this shit mang.
+	// don't use downward smoothing when player is crouching, this produces a hitch in MP
+	// (by ALL means, if button is pressed or we use crouch hull)
+	// P.S. the reason this started to happen was adding PM_StayOnGround, but it is needed.
+	const int currentHull = gEngfuncs.GetLocalPlayer()->curstate.usehull;
+	if( currentHull == 1 && lastHull != 1 )
 	{
-		float steptime;
+		oldz = pparams->simorg[2];
+	}
+	lastHull = currentHull;
 
-		steptime = pparams->time - lasttime;
-		if( steptime < 0 ) steptime = 0;
+	const bool bSkipDownwardSmooth = (gHUD.m_iKeyBits & IN_DUCK) || CL_IsCrouching();
+	const int iUpsideDown = (gEngfuncs.GetLocalPlayer()->curstate.effects & EF_UPSIDEDOWN) ? -1 : 1;
 
-		oldz += steptime * 150.0f;
+	if( !pparams->smoothing && pparams->onground )
+	{
+		const float delta = (pparams->simorg[2] - oldz) * iUpsideDown;
+		float steptime = pparams->time - lasttime;
+		if( steptime < 0 )
+			steptime = 0;
 
-		if( oldz > pparams->simorg[2] )
+		if( delta > 0.0f )
+		{
+			// stepping up
+			oldz += steptime * 150.0f * iUpsideDown;
+			if( (oldz - pparams->simorg[2]) * iUpsideDown > 0.0f )
+				oldz = pparams->simorg[2];
+			if( (pparams->simorg[2] - oldz) * iUpsideDown > pparams->movevars->stepsize )
+				oldz = pparams->simorg[2] - pparams->movevars->stepsize * iUpsideDown;
+
+			pparams->vieworg[2] += oldz - pparams->simorg[2];
+			view->origin.z += oldz - pparams->simorg[2];
+		}
+		else if( delta < 0.0f && !bSkipDownwardSmooth )
+		{
+			// stepping down
+			oldz -= steptime * 150.0f * iUpsideDown;
+			if( (oldz - pparams->simorg[2]) * iUpsideDown < 0.0f )
+				oldz = pparams->simorg[2];
+			if( (oldz - pparams->simorg[2]) * iUpsideDown > pparams->movevars->stepsize )
+				oldz = pparams->simorg[2] + pparams->movevars->stepsize * iUpsideDown;
+
+			pparams->vieworg[2] += oldz - pparams->simorg[2];
+			view->origin.z += oldz - pparams->simorg[2];
+		}
+		else
+		{
 			oldz = pparams->simorg[2];
-		if( pparams->simorg[2] - oldz > pparams->movevars->stepsize )
-			oldz = pparams->simorg[2] - pparams->movevars->stepsize;
-
-		pparams->vieworg[2] += oldz - pparams->simorg[2];
-		view->origin.z += oldz - pparams->simorg[2];
+		}
 	}
 	else
+	{
 		oldz = pparams->simorg[2];
+	}
 
 	lasttime = pparams->time;
 
@@ -2431,6 +2605,12 @@ void V_CalcRefdef( struct ref_params_s *pparams )
 			gHUD.m_iCameraMode = 1;
 		else
 			gHUD.m_iCameraMode = 0;
+	}
+
+	if( pparams->health > 0 )
+	{
+		gHUD.iKillerIndex = 0;
+		gHUD.fLerpToKiller = 0.0f;
 	}
 
 	// switch to 1st-person in spectator mode (camera issues)
